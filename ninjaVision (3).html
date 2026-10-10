@@ -1,0 +1,986 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
+    <style>
+* { box-sizing: border-box; }
+
+html, body {
+    margin: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: #0b0d12;
+    color: #fff;
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    overscroll-behavior: none;
+    -webkit-user-select: none;
+    user-select: none;
+}
+
+main {
+    position: fixed;
+    inset: 0;
+    width: 100vw;
+    height: 100vh;
+    height: 100dvh; /* altura real no celular (desconta a barra do navegador) */
+    overflow: hidden;
+}
+
+#video, #canva {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    display: block;
+}
+
+#video {
+    object-fit: cover;
+    transform: scaleX(-1); /* espelho */
+    filter: brightness(0.75);
+}
+
+#canva { touch-action: none; }
+
+/* ---------- Placar ---------- */
+#hud {
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: center;
+    gap: 12px;
+    padding: calc(10px + env(safe-area-inset-top)) calc(14px + env(safe-area-inset-right)) 10px calc(14px + env(safe-area-inset-left));
+    background: linear-gradient(rgba(0,0,0,.6), rgba(0,0,0,0));
+    pointer-events: none;
+    font-weight: 700;
+    font-size: clamp(14px, 2.4vmin, 22px);
+    text-shadow: 0 1px 3px rgba(0,0,0,.8);
+}
+#hud[hidden] { display: none; }
+
+.hud-vida { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.barra {
+    flex: 1;
+    max-width: 260px;
+    height: clamp(10px, 1.8vmin, 16px);
+    background: rgba(255,255,255,.2);
+    border-radius: 99px;
+    overflow: hidden;
+}
+#vidaBarra {
+    height: 100%;
+    width: 100%;
+    background: #2ecc71;
+    border-radius: 99px;
+    transition: width .2s, background .2s;
+}
+#tempo {
+    font-size: clamp(22px, 5vmin, 44px);
+    font-variant-numeric: tabular-nums;
+}
+#tempo.acabando { color: #ff7675; }
+.hud-pontos { text-align: right; white-space: nowrap; }
+
+#combo {
+    position: absolute;
+    top: calc(clamp(58px, 11vmin, 96px) + env(safe-area-inset-top));
+    left: 50%;
+    transform: translateX(-50%);
+    text-align: center;
+    pointer-events: none;
+    font-weight: 800;
+    font-size: clamp(20px, 4.5vmin, 38px);
+    color: #ffd166;
+    text-shadow: 0 0 12px rgba(255, 80, 60, .9), 0 2px 4px rgba(0,0,0,.8);
+}
+#combo[hidden] { display: none; }
+#combo.pulso { animation: comboPulso .25s ease-out; }
+@keyframes comboPulso { from { transform: translateX(-50%) scale(1.5); } to { transform: translateX(-50%) scale(1); } }
+.combo-barra {
+    width: clamp(90px, 18vmin, 160px);
+    height: 5px;
+    margin: 4px auto 0;
+    background: rgba(255,255,255,.25);
+    border-radius: 99px;
+    overflow: hidden;
+}
+#comboTempo { display: block; height: 100%; width: 100%; background: #ff5c5c; }
+
+/* ---------- Telas ---------- */
+#tela {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+    background: rgba(5, 7, 12, .72);
+    backdrop-filter: blur(4px);
+}
+#tela[hidden] { display: none; }
+
+.cartao {
+    width: min(460px, 100%);
+    max-height: 100%;
+    overflow: auto;
+    padding: clamp(18px, 4vmin, 32px);
+    text-align: center;
+    background: #161a23;
+    border: 1px solid #2a3040;
+    border-radius: 18px;
+}
+.cartao h1 { margin: 0 0 10px; font-size: clamp(26px, 6vmin, 40px); }
+.cartao p { margin: 0 0 12px; line-height: 1.5; color: #cfd6e4; }
+.cartao ul { list-style: none; margin: 0 0 14px; padding: 0; color: #9aa4b8; font-size: .92em; line-height: 1.7; }
+.cartao ul[hidden] { display: none; }
+.vermelho { color: #ff5c5c; }
+.azul { color: #5aa2ff; }
+.verde { color: #4cd68a; }
+#telaAviso { color: #ffd166; font-size: .9em; min-height: 1.2em; }
+#telaAviso:empty { display: none; }
+
+#btnJogar {
+    width: 100%;
+    padding: 14px 20px;
+    font: inherit;
+    font-size: 1.1em;
+    font-weight: 700;
+    color: #fff;
+    background: #e63946;
+    border: 0;
+    border-radius: 12px;
+    cursor: pointer;
+}
+#btnJogar:disabled { opacity: .6; cursor: wait; }
+    </style>
+    <title>Ninja Vision</title>
+</head>
+<body>
+    <main>
+        <!-- Webcam (fica atrás do canvas, espelhada) -->
+        <video id="video" autoplay playsinline muted></video>
+
+        <!-- Jogo -->
+        <canvas id="canva"></canvas>
+
+        <!-- Placar -->
+        <div id="hud" hidden>
+            <div class="hud-vida">
+                <div class="barra"><div id="vidaBarra"></div></div>
+                <span id="vidaTexto">100</span>
+            </div>
+            <div id="tempo">2:00</div>
+            <div class="hud-pontos"><span id="pontos">0</span> cortes</div>
+        </div>
+
+        <!-- Combo: aparece a partir do 2º bloco quebrado em sequência -->
+        <div id="combo" hidden>
+            Combo x<span id="comboValor">2</span>
+            <div class="combo-barra"><i id="comboTempo"></i></div>
+        </div>
+
+        <!-- Telas de início, vitória e derrota -->
+        <div id="tela">
+            <div class="cartao">
+                <h1 id="telaTitulo">Ninja Vision</h1>
+                <p id="telaTexto">
+                    Golpeie os blocos <b class="vermelho">vermelhos</b> com movimentos rápidos:
+                    só quebra quando a mão brilha vermelho. Toque fraco apenas rebate.<br>
+                    Não quebre os <b class="azul">azuis</b>. Sobreviva por 2 minutos.
+                </p>
+                <ul id="telaRegras">
+                    <li>Vermelho que cair: <b>-10</b> de vida</li>
+                    <li>Quebrar azul: <b>-50</b> de vida</li>
+                    <li>Destruir <b class="verde">verde</b>: <b>+30</b> de vida</li>
+                    <li>Quebrar outro bloco em até 2 s: <b>combo</b></li>
+                </ul>
+                <p id="telaAviso"></p>
+                <button id="btnJogar">Jogar</button>
+            </div>
+        </div>
+    </main>
+
+    <script>
+// ============================================================
+//  MediaPipe - Pose Landmarker (corpo inteiro)
+//  Daqui o jogo só usa os pontos das mãos:
+//    17 = mindinho esquerdo   19 = indicador esquerdo
+//    18 = mindinho direito    20 = indicador direito
+// ============================================================
+
+const MP_VERSAO = '0.10.14';
+const MP_URL    = `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MP_VERSAO}`;
+const MP_MODELO = 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task';
+
+// Cada mão é formada por dois landmarks (mindinho + indicador)
+const MAOS_MARKS = [
+    { id: 'esquerda', marks: [17, 19] },
+    { id: 'direita',  marks: [18, 20] },
+];
+const VISIBILIDADE_MINIMA = 0.5;
+
+let poseLandmarker = null;
+let lastVideoTime = -1;
+
+// Carrega a lib e o modelo (import dinâmico: não precisa de bundler)
+async function setupMediaPipe() {
+    const { FilesetResolver, PoseLandmarker } = await import(`${MP_URL}/vision_bundle.mjs`);
+    const vision = await FilesetResolver.forVisionTasks(`${MP_URL}/wasm`);
+
+    const criar = (delegate) => PoseLandmarker.createFromOptions(vision, {
+        baseOptions: { modelAssetPath: MP_MODELO, delegate },
+        runningMode: 'VIDEO',
+        numPoses: 1,
+    });
+
+    try {
+        poseLandmarker = await criar('GPU');
+    } catch (err) {
+        console.warn('GPU indisponível, usando CPU:', err);
+        poseLandmarker = await criar('CPU');
+    }
+}
+
+// Liga a câmera frontal no <video>
+async function startCamera(video) {
+    const stream = await navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: {
+            facingMode: 'user',
+            width: { ideal: 640 },
+            height: { ideal: 480 },
+            frameRate: { ideal: 30 },
+        },
+    });
+    video.srcObject = stream;
+    await video.play();
+}
+
+// Retorna as mãos visíveis em coordenadas normalizadas (0 a 1) do vídeo:
+//   [{ id: 'esquerda', pontos: [{x,y}, {x,y}] }, ...]
+// Retorna null quando não há frame novo (o jogo mantém a última posição).
+function detectarMaos(video) {
+    if (!poseLandmarker || video.readyState < 2) return null;
+    if (video.currentTime === lastVideoTime) return null;
+    lastVideoTime = video.currentTime;
+
+    const result = poseLandmarker.detectForVideo(video, performance.now());
+    const corpo = result.landmarks && result.landmarks[0];
+    if (!corpo) return [];
+
+    const maos = [];
+    MAOS_MARKS.forEach(({ id, marks }) => {
+        const pontos = marks
+            .map(m => corpo[m])
+            .filter(p => p && (p.visibility === undefined || p.visibility >= VISIBILIDADE_MINIMA));
+        if (pontos.length) maos.push({ id, pontos });
+    });
+    return maos;
+}
+    </script>
+    <script>
+// ============================================================
+//  lib.js - classes e funções de apoio do jogo
+// ============================================================
+
+function boxCollision({ box1, box2}){
+    const xCollision = box1.right >= box2.left && box1.left <= box2.right
+    const zCollision =  box1.front >= box2.back && box1.back <= box2.front
+    const yCollision = box1.bottom + box1.velocity.y <= box2.top && box1.top >= box2.bottom
+    return xCollision && yCollision && zCollision
+}
+
+// ---------- Colisão mão (círculo) x bloco (retângulo) ----------
+
+function circuloTocaBloco(cx, cy, r, b) {
+    const px = Math.max(b.x, Math.min(cx, b.x + b.l));
+    const py = Math.max(b.y, Math.min(cy, b.y + b.a));
+    const dx = cx - px;
+    const dy = cy - py;
+    return dx * dx + dy * dy <= r * r;
+}
+
+// Testa o caminho inteiro da mão entre dois frames,
+// para um movimento rápido não "atravessar" o bloco sem cortar.
+function varreduraTocaBloco(x0, y0, x1, y1, r, b) {
+    const dist = Math.hypot(x1 - x0, y1 - y0);
+    const passos = Math.max(1, Math.ceil(dist / Math.max(r, 1)));
+    for (let i = 0; i <= passos; i++) {
+        const t = i / passos;
+        if (circuloTocaBloco(x0 + (x1 - x0) * t, y0 + (y1 - y0) * t, r, b)) return true;
+    }
+    return false;
+}
+
+// ---------- Bloco ----------
+
+const CORES = {
+    red:  { base: '#e63946', claro: '#ff8a8a' },
+    blue: { base: '#2f6fed', claro: '#8ab6ff' },
+    green: { base: '#27ae60', claro: '#8ef0b4' },
+};
+
+class Quadros{
+    constructor({x,y,l,a,color,vx = 0,vy = 0,quiquesMax = 0,quica = true,gravidadeEscala = 1}){
+        this.x = x;
+        this.y = y;
+        this.l = l;
+        this.a = a;
+        this.color = color;
+        this.vx = vx;           // px por segundo
+        this.vy = vy;
+        this.quiques = 0;       // quantas vezes já saltou no chão
+        this.quiquesMax = quiquesMax;
+        this.quica = quica;                     // false: não rebate em nada, só atravessa a tela
+        this.gravidadeEscala = gravidadeEscala; // 0: desce em velocidade constante
+        this.broken = false;
+        this.queda = false;
+    }
+
+    // dt em segundos; largura/altura da tela; gravidade em px/s²
+    update(dt, largura, altura, gravidade){
+        if(this.broken) return;
+
+        this.vy += gravidade * this.gravidadeEscala * dt;
+        this.x += this.vx * dt;
+        this.y += this.vy * dt;
+
+        if(!this.quica) return;
+
+        // Rebate nas laterais
+        if(this.x < 0){ this.x = 0; this.vx = Math.abs(this.vx); }
+        else if(this.x + this.l > largura){ this.x = largura - this.l; this.vx = -Math.abs(this.vx); }
+
+        // Salta no chão (até quiquesMax vezes); depois disso passa direto e cai
+        if(this.vy > 0 && this.y + this.a >= altura && this.quiques < this.quiquesMax){
+            this.y = altura - this.a;
+            this.vy = -this.vy * 0.8;
+            this.quiques++;
+        }
+    }
+
+    saiu(altura){
+        return this.y > altura;
+    }
+
+    desenhar(ctx){
+        if(this.broken) return;
+        const cor = CORES[this.color];
+        const raio = this.l * 0.18;
+        ctx.save();
+        ctx.shadowColor = cor ? cor.base : this.color;
+        ctx.shadowBlur = this.l * 0.35;
+        ctx.fillStyle = cor ? cor.base : this.color;
+        ctx.beginPath();
+        if(ctx.roundRect) ctx.roundRect(this.x, this.y, this.l, this.a, raio);
+        else ctx.rect(this.x, this.y, this.l, this.a);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+        // Brilho no topo
+        ctx.fillStyle = cor ? cor.claro : '#fff';
+        ctx.globalAlpha = 0.35;
+        ctx.beginPath();
+        if(ctx.roundRect) ctx.roundRect(this.x + this.l*0.12, this.y + this.a*0.1, this.l*0.76, this.a*0.22, raio*0.6);
+        else ctx.rect(this.x + this.l*0.12, this.y + this.a*0.1, this.l*0.76, this.a*0.22);
+        ctx.fill();
+        ctx.restore();
+    }
+
+    // --- Mecânica de empurrar (Cata Blocos) - fora de uso por enquanto ---
+    moverH(b){
+      if(this.y < b.y && this.y + this.a > b.y + b.a){
+         if(b.l < 0 ) b.l *= -1
+        if(this.x > b.x && this.x < b.x + b.l){
+          this.x = b.x + b.l
+        }
+        else if(this.x + this.l >  b.x && this.x < b.x ){
+          this.x = b.x - this.l - 1
+        }
+      }
+    }
+    moverV(b){
+      if(b.a < 0 ) b.a *= -1
+      if(this.x < b.x && this.x + this.l > b.x + b.l){
+        if(this.y < b.y + b.a && this.y > b.y && !this.queda){
+          this.vy *= 2
+          this.queda = true
+        } else if(this.y + this.a > b.y && this.y < b.y){
+          this.y = b.y - this.a - 1
+        }
+      }
+    }
+}
+
+// ---------- Fragmento (partícula do bloco destruído) ----------
+
+class Fragmento{
+    constructor(x,y,size,color = 'red'){
+        this.x = x;
+        this.y = y;
+        this.size = size;
+        this.vx = (Math.random() - 0.5) * 700;   // px por segundo
+        this.vy = (Math.random() - 0.7) * 700;
+        this.alpha = 1;
+        this.color = color;
+    }
+    update(dt, gravidade) {
+        this.x += this.vx * dt;
+        this.y += this.vy * dt;
+        this.vy += gravidade * dt;
+        this.alpha -= 1.4 * dt;
+    }
+
+    draw(ctx) {
+        if (this.alpha <= 0) return;
+        ctx.globalAlpha = this.alpha;
+        ctx.fillStyle = this.color;
+        ctx.fillRect(this.x, this.y, this.size, this.size);
+        ctx.globalAlpha = 1;
+    }
+}
+
+function criarFragmentos(lista, bloco, quantidade = 14){
+    const cor = CORES[bloco.color] ? CORES[bloco.color].base : bloco.color;
+    const tamanho = bloco.l / 5;
+    for (let i = 0; i < quantidade; i++) {
+        lista.push(new Fragmento(
+            bloco.x + Math.random() * (bloco.l - tamanho),
+            bloco.y + Math.random() * (bloco.a - tamanho),
+            tamanho, cor));
+    }
+}
+
+// ---------- Rastro (um por mão) ----------
+
+const trails = {};
+
+function updateTrail(id, x, y) {
+    if (!trails[id]) trails[id] = [];
+    trails[id].push({ x, y, alpha: 1 });
+}
+
+function cortarTrail(id) {
+    // Marca uma quebra para não ligar a posição antiga à nova quando a mão some e volta
+    if (trails[id] && trails[id].length) trails[id].push(null);
+}
+
+function limparTrails() {
+    Object.keys(trails).forEach(id => { trails[id] = []; });
+}
+
+function drawTrail(ctx, dt, espessura = 6) {
+    ctx.save();
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = '#ffe9a8';
+    ctx.shadowColor = '#ff7675';
+    ctx.shadowBlur = espessura * 2;
+
+    Object.keys(trails).forEach(id => {
+        const t = trails[id];
+        for (let i = 0; i < t.length; i++) {
+            if (t[i]) t[i].alpha -= 3.5 * dt;
+        }
+        // Um traço por segmento, para o desvanecer funcionar ponto a ponto
+        for (let i = 1; i < t.length; i++) {
+            const a = t[i - 1], b = t[i];
+            if (!a || !b || b.alpha <= 0) continue;
+            ctx.globalAlpha = b.alpha;
+            ctx.lineWidth = espessura * b.alpha;
+            ctx.beginPath();
+            ctx.moveTo(a.x, a.y);
+            ctx.lineTo(b.x, b.y);
+            ctx.stroke();
+        }
+        trails[id] = t.filter((p, i) => p ? p.alpha > 0 : (i > 0 && i < t.length - 1));
+    });
+    ctx.restore();
+}
+    </script>
+    <script>
+// ============================================================
+//  Ninja Vision - game.js
+// ============================================================
+
+// 1. CONFIGURAÇÃO DA PARTIDA
+const CONFIG = {
+    duracao: 120,          // segundos de partida
+    vidaInicial: 100,
+    danoVermelhoCaiu: 10,  // vermelho que escapa
+    danoAzulTocado: 50,    // encostar no azul
+    quiquesNoChao: 1,      // quantos saltos o bloco dá no chão antes de cair de vez
+    intervaloInicio: 1.2,  // segundos entre blocos no começo...
+    intervaloFim: 0.6,     // ...e no final da partida
+    chanceAzulInicio: 0.08,
+    chanceAzulFim: 0.18,
+    velocidadeAzul: 0.42,  // fração da altura da tela por segundo (desce reto, sem quicar)
+    chanceVerde: 0.07,
+    curaVerde: 30,         // vida recuperada ao destruir um verde
+
+    // Energia cinética da mão
+    janelaMovimento: 1,     // segundos máximos entre a 1ª e a 3ª posição guardada
+    distMinAmostra: 0.03,   // distância mínima entre posições guardadas (fração do menor lado da tela)
+    velocidadeQuebra: 0.9,  // velocidade que quebra o bloco (menor lado da tela por segundo)
+    azulSoComGolpe: true,   // true: azul só tira vida se for quebrado; false: qualquer toque tira vida
+
+    // Combo
+    comboJanela: 2,         // segundos para quebrar o próximo bloco e manter o combo
+    comboBrilhoMax: 8,      // combo em que o brilho da mão chega ao máximo
+};
+
+// 2. VARIÁVEIS GLOBAIS
+const canvas = document.getElementById('canva');
+const ctx = canvas.getContext('2d');
+const video = document.getElementById('video');
+
+const hud = document.getElementById('hud');
+const elVidaBarra = document.getElementById('vidaBarra');
+const elVidaTexto = document.getElementById('vidaTexto');
+const elTempo = document.getElementById('tempo');
+const elPontos = document.getElementById('pontos');
+const elCombo = document.getElementById('combo');
+const elComboValor = document.getElementById('comboValor');
+const elComboTempo = document.getElementById('comboTempo');
+const tela = document.getElementById('tela');
+const telaTitulo = document.getElementById('telaTitulo');
+const telaTexto = document.getElementById('telaTexto');
+const telaRegras = document.getElementById('telaRegras');
+const telaAviso = document.getElementById('telaAviso');
+const btnJogar = document.getElementById('btnJogar');
+
+let largura = 0, altura = 0;      // tamanho da tela em px de CSS
+let blocos = [];
+let fragmento = [];
+const maos = {};                  // mãos ativas: { id: {x, y, r, px, py, ativa, hist, energia, brilho} }
+
+let estado = 'inicio';            // 'inicio' | 'jogando' | 'fim'
+let vida = CONFIG.vidaInicial;
+let pontos = 0;
+let combo = 0;                    // blocos quebrados em sequência
+let melhorCombo = 0;
+let comboTempo = 0;               // timer interno: reinicia a cada bloco quebrado
+let tempoRestante = CONFIG.duracao;
+let proximoBloco = 0;
+let flashCor = '230, 57, 70';
+let flash = 0;                    // clarão vermelho ao tomar dano
+let cameraPronta = false;
+let cameraTentada = false;
+let ultimoFrame = 0;
+
+// 3. TELA RESPONSIVA (computador em tela cheia e celular)
+function ajustarTela() {
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    largura = canvas.clientWidth;
+    altura = canvas.clientHeight;
+    canvas.width = Math.round(largura * dpr);
+    canvas.height = Math.round(altura * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+window.addEventListener('resize', ajustarTela);
+window.addEventListener('orientationchange', ajustarTela);
+ajustarTela();
+
+const tamanhoBloco = () => Math.max(46, Math.min(120, Math.min(largura, altura) * 0.14));
+const raioMinimoMao = () => Math.max(18, Math.min(largura, altura) * 0.04);
+const gravidade = () => altura * 0.9;
+const menorLado = () => Math.min(largura, altura);
+let tempoAgora = () => performance.now() / 1000;
+
+// Converte um ponto normalizado do vídeo (0..1) para a tela,
+// respeitando o espelhamento e o recorte do object-fit: cover.
+function videoParaTela(p) {
+    const vw = video.videoWidth || largura;
+    const vh = video.videoHeight || altura;
+    const escala = Math.max(largura / vw, altura / vh);
+    const dw = vw * escala, dh = vh * escala;
+    return {
+        x: (largura - dw) / 2 + (1 - p.x) * dw,
+        y: (altura - dh) / 2 + p.y * dh,
+    };
+}
+
+// 4. MÃOS
+function posicionarMao(id, x, y, r) {
+    let m = maos[id];
+    if (!m || !m.ativa) {
+        // Mão acabou de aparecer: não varre a partir da posição antiga
+        cortarTrail(id);
+        m = maos[id] = { x, y, px: x, py: y, r, ativa: true, hist: [], energia: 0, brilho: 0 };
+    } else {
+        m.x = x; m.y = y; m.r = r;
+    }
+    guardarPosicao(m);
+    updateTrail(id, x, y);
+}
+
+// Guarda até 3 posições da mão, afastadas entre si (não tão próximas)
+// e todas dentro da janela de 1 s.
+function guardarPosicao(m) {
+    const t = tempoAgora();
+    m.hist = m.hist.filter(p => t - p.t <= CONFIG.janelaMovimento);
+    const ultima = m.hist[m.hist.length - 1];
+    const distMin = menorLado() * CONFIG.distMinAmostra;
+    if (!ultima || Math.hypot(m.x - ultima.x, m.y - ultima.y) >= distMin) {
+        m.hist.push({ x: m.x, y: m.y, t });
+        if (m.hist.length > 3) m.hist.shift();
+    }
+}
+
+// Energia cinética da mão, de 0 a 1 (1 = quebra o bloco).
+// Compara as 3 posições guardadas: caminho percorrido / tempo = velocidade; energia ~ v².
+// Com a mão parada as posições envelhecem e a energia cai sozinha.
+function energiaDaMao(m) {
+    const t = tempoAgora();
+    m.hist = m.hist.filter(p => t - p.t <= CONFIG.janelaMovimento);
+    if (m.hist.length < 3) return 0;
+    const [a, b, c] = m.hist;
+    const caminho = Math.hypot(b.x - a.x, b.y - a.y) + Math.hypot(c.x - b.x, c.y - b.y);
+    const velocidade = caminho / Math.max(t - a.t, 1 / 120);
+    const razao = velocidade / (menorLado() * CONFIG.velocidadeQuebra);
+    return Math.min(1, razao * razao);
+}
+
+function atualizarEnergia(dt) {
+    for (const id in maos) {
+        const m = maos[id];
+        m.energia = m.ativa ? energiaDaMao(m) : 0;
+        // Brilho sobe rápido e apaga suave
+        const k = m.energia > m.brilho ? 1 : Math.min(1, dt * 6);
+        m.brilho += (m.energia - m.brilho) * k;
+    }
+}
+
+function soltarMao(id) {
+    if (maos[id]) maos[id].ativa = false;
+}
+
+function lerMaosDaCamera() {
+    if (!cameraPronta) return;
+    const detectadas = detectarMaos(video);
+    if (detectadas === null) return; // sem frame novo
+
+    const vistas = {};
+    detectadas.forEach(({ id, pontos }) => {
+        // "Toda a mão": círculo que cobre do mindinho ao indicador
+        const pts = pontos.map(videoParaTela);
+        const cx = pts.reduce((s, p) => s + p.x, 0) / pts.length;
+        const cy = pts.reduce((s, p) => s + p.y, 0) / pts.length;
+        let r = raioMinimoMao();
+        if (pts.length > 1) {
+            r = Math.max(r, Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y) / 2 + raioMinimoMao() * 0.6);
+        }
+        posicionarMao(id, cx, cy, r);
+        vistas[id] = true;
+    });
+    ['esquerda', 'direita'].forEach(id => { if (!vistas[id]) soltarMao(id); });
+}
+
+// Mouse / toque: funciona como uma mão extra (útil para testar sem câmera)
+canvas.addEventListener('pointermove', (e) => {
+    const rect = canvas.getBoundingClientRect();
+    posicionarMao('ponteiro', e.clientX - rect.left, e.clientY - rect.top, raioMinimoMao());
+});
+['pointerleave', 'pointerup', 'pointercancel'].forEach(ev =>
+    canvas.addEventListener(ev, (e) => { if (ev === 'pointerleave' || e.pointerType !== 'mouse') soltarMao('ponteiro'); }));
+
+// 5. BLOCOS
+function criarBloco() {
+    const progresso = 1 - tempoRestante / CONFIG.duracao;
+    const chanceAzul = CONFIG.chanceAzulInicio + (CONFIG.chanceAzulFim - CONFIG.chanceAzulInicio) * progresso;
+    const t = tamanhoBloco();
+    const sorteio = Math.random();
+
+    if (sorteio < chanceAzul) {
+        // Azul: mais lento, sem gravidade e sem quicar. Atravessa a tela uma vez e some.
+        const margem = largura * 0.1;
+        blocos.push(new Quadros({
+            x: margem + Math.random() * Math.max(0, largura - t - margem * 2),
+            y: -t,
+            l: t,
+            a: t,
+            color: 'blue',
+            vx: (Math.random() - 0.5) * largura * 0.06,
+            vy: altura * CONFIG.velocidadeAzul,
+            quica: false,
+            gravidadeEscala: 0,
+        }));
+    } else {
+        // Vermelho e verde: entram saltando
+        blocos.push(new Quadros({
+            x: Math.random() * (largura - t),
+            y: -t,
+            l: t,
+            a: t,
+            color: sorteio < chanceAzul + CONFIG.chanceVerde ? 'green' : 'red',
+            vx: (Math.random() - 0.5) * largura * 0.5,
+            vy: altura * 0.1,
+            quiquesMax: CONFIG.quiquesNoChao,
+        }));
+    }
+    proximoBloco = CONFIG.intervaloInicio + (CONFIG.intervaloFim - CONFIG.intervaloInicio) * progresso;
+}
+
+function perderVida(valor) {
+    vida = Math.max(0, vida - valor);
+    flash = Math.min(1, valor / 50 + 0.35);
+    flashCor = '230, 57, 70';
+}
+
+function ganharVida(valor) {
+    vida = Math.min(CONFIG.vidaInicial, vida + valor);
+    flash = 0.6;
+    flashCor = '46, 204, 113';
+}
+
+// 6. REGRAS
+function contarCombo() {
+    // Quebrou dentro do timer: soma no combo. Fora dele: recomeça a contagem.
+    combo = comboTempo > 0 ? combo + 1 : 1;
+    comboTempo = CONFIG.comboJanela;
+    melhorCombo = Math.max(melhorCombo, combo);
+    if (combo >= 2) {
+        elCombo.classList.remove('pulso');
+        void elCombo.offsetWidth; // reinicia a animação
+        elCombo.classList.add('pulso');
+    }
+}
+
+function zerarCombo() {
+    combo = 0;
+    comboTempo = 0;
+}
+
+function quebrarBloco(b) {
+    b.broken = true;
+    criarFragmentos(fragmento, b);
+    if (b.color === 'blue') {
+        perderVida(CONFIG.danoAzulTocado);
+        zerarCombo();
+        return;
+    }
+    if (b.color === 'red') pontos++;
+    else if (b.color === 'green') ganharVida(CONFIG.curaVerde);
+    contarCombo();
+}
+
+// Toque sem energia suficiente: o bloco só é rebatido para longe da mão
+function ricochetear(b, m) {
+    let dx = (b.x + b.l / 2) - m.x;
+    let dy = (b.y + b.a / 2) - m.y;
+    let d = Math.hypot(dx, dy);
+    if (d < 1) { dx = 0; dy = -1; d = 1; }
+    dx /= d; dy /= d;
+    const velocidade = Math.max(Math.hypot(b.vx, b.vy) * 0.7, altura * 0.45);
+    b.vx = dx * velocidade;
+    b.vy = dy * velocidade;
+    b.x += dx * m.r * 0.5;
+    b.y += dy * m.r * 0.5;
+    b.gravidadeEscala = 1;  // o azul rebatido passa a cair
+    b.imune = 0.25;         // evita rebater de novo no frame seguinte
+}
+
+function atualizarJogo(dt) {
+    tempoRestante -= dt;
+    proximoBloco -= dt;
+    if (proximoBloco <= 0) criarBloco();
+
+    if (comboTempo > 0) {
+        comboTempo -= dt;
+        if (comboTempo <= 0) zerarCombo();
+    }
+
+    const g = gravidade();
+    blocos.forEach(b => {
+        b.update(dt, largura, altura, g);
+        b.imune = Math.max(0, (b.imune || 0) - dt);
+
+        // Alguma mão encostou?
+        for (const id in maos) {
+            const m = maos[id];
+            if (!m.ativa || b.broken || b.imune > 0) continue;
+            if (varreduraTocaBloco(m.px, m.py, m.x, m.y, m.r, b)) {
+                if (m.energia >= 1) quebrarBloco(b);
+                else if (b.color === 'blue' && !CONFIG.azulSoComGolpe) quebrarBloco(b);
+                else ricochetear(b, m);
+            }
+        }
+
+        // Saiu por baixo (ou pelos lados, no caso do azul rebatido)
+        const saiuDeLado = !b.quica && (b.x + b.l < 0 || b.x > largura);
+        if (!b.broken && (b.saiu(altura) || saiuDeLado)) {
+            b.broken = true;
+            if (b.color === 'red') perderVida(CONFIG.danoVermelhoCaiu);
+        }
+    });
+    blocos = blocos.filter(b => !b.broken);
+
+    if (vida <= 0) finalizar(false);
+    else if (tempoRestante <= 0) finalizar(true);
+}
+
+// 7. PLACAR E TELAS
+function atualizarHud() {
+    const t = Math.max(0, Math.ceil(tempoRestante));
+    elTempo.textContent = Math.floor(t / 60) + ':' + String(t % 60).padStart(2, '0');
+    elTempo.classList.toggle('acabando', t <= 10);
+    elPontos.textContent = pontos;
+    elVidaTexto.textContent = vida;
+    elVidaBarra.style.width = (vida / CONFIG.vidaInicial * 100) + '%';
+    elVidaBarra.style.background = vida > 50 ? '#2ecc71' : vida > 20 ? '#f1c40f' : '#e74c3c';
+    elCombo.hidden = combo < 2;
+    elComboValor.textContent = combo;
+    elComboTempo.style.width = Math.max(0, comboTempo / CONFIG.comboJanela * 100) + '%';
+}
+
+function iniciarPartida() {
+    blocos = [];
+    fragmento = [];
+    limparTrails();
+    vida = CONFIG.vidaInicial;
+    pontos = 0;
+    combo = 0;
+    melhorCombo = 0;
+    comboTempo = 0;
+    tempoRestante = CONFIG.duracao;
+    proximoBloco = 0.8;
+    flash = 0;
+    estado = 'jogando';
+    tela.hidden = true;
+    hud.hidden = false;
+    atualizarHud();
+}
+
+const textoBlocos = (n) => n === 1 ? '<b>1</b> bloco destruído' : `<b>${n}</b> blocos destruídos`;
+
+function finalizar(venceu) {
+    estado = 'fim';
+    tempoRestante = Math.max(0, tempoRestante);
+    atualizarHud();
+    telaTitulo.textContent = venceu ? 'Você venceu!' : 'Você perdeu';
+    telaTexto.innerHTML = venceu
+        ? `Sobreviveu aos 2 minutos com <b>${vida}</b> de vida e ${textoBlocos(pontos)}.`
+        : `Sua vida acabou faltando <b>${elTempo.textContent}</b>. Você fez ${textoBlocos(pontos)}.`;
+    if (melhorCombo >= 2) telaTexto.innerHTML += `<br>Maior combo: <b>x${melhorCombo}</b>.`;
+    zerarCombo();
+    elCombo.hidden = true;
+    telaRegras.hidden = true;
+    btnJogar.textContent = 'Jogar de novo';
+    btnJogar.disabled = false;
+    tela.hidden = false;
+}
+
+async function prepararCamera() {
+    if (cameraTentada) return;
+    cameraTentada = true;
+    try {
+        await startCamera(video);
+        btnJogar.textContent = 'Carregando detecção…';
+        await setupMediaPipe();
+        cameraPronta = true;
+        telaAviso.textContent = '';
+    } catch (err) {
+        console.error('Câmera/MediaPipe indisponível:', err);
+        telaAviso.textContent = 'Câmera ou detecção indisponível. Jogando com mouse/toque.';
+    }
+}
+
+btnJogar.addEventListener('click', async () => {
+    btnJogar.disabled = true;
+    if (!cameraTentada) {
+        btnJogar.textContent = 'Abrindo câmera…';
+        await prepararCamera();
+    }
+    iniciarPartida();
+});
+
+// 8. DESENHO DA MÃO
+function desenharMao(m, nivelCombo, agora) {
+    const e = m.brilho;                 // 0 = parada, 1 = energia para quebrar
+    const carregada = m.energia >= 1;
+    const verde = Math.round(233 - 180 * e);
+    const azul = Math.round(168 - 140 * e);
+
+    ctx.save();
+    // Halo vermelho: cresce com a energia e com o combo
+    if (e > 0.03 || nivelCombo > 0) {
+        ctx.shadowColor = `rgba(255, 40, 30, ${Math.min(1, 0.35 + e * 0.65 + nivelCombo * 0.5)})`;
+        ctx.shadowBlur = m.r * (0.3 + 1.5 * e + 2.2 * nivelCombo * (0.4 + 0.6 * e));
+    }
+    ctx.beginPath();
+    ctx.arc(m.x, m.y, m.r, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(255, ${verde}, ${azul}, ${0.16 + 0.5 * e})`;
+    ctx.strokeStyle = `rgba(255, ${verde}, ${azul}, 0.95)`;
+    ctx.lineWidth = 2 + 4 * e + 3 * nivelCombo;
+    ctx.fill();
+    ctx.stroke();
+    if (carregada) ctx.stroke(); // reforça o brilho quando está pronta para quebrar
+
+    // Anel externo pulsando enquanto houver combo
+    if (nivelCombo > 0) {
+        const pulso = 0.5 + 0.5 * Math.sin(agora / 90);
+        ctx.beginPath();
+        ctx.arc(m.x, m.y, m.r * (1.3 + 0.35 * nivelCombo + 0.08 * pulso), 0, Math.PI * 2);
+        ctx.strokeStyle = `rgba(255, 90, 60, ${0.35 + 0.5 * nivelCombo})`;
+        ctx.lineWidth = 2 + 3 * nivelCombo;
+        ctx.stroke();
+    }
+
+    // Núcleo claro quando carregada
+    if (carregada) {
+        ctx.shadowBlur = 0;
+        ctx.beginPath();
+        ctx.arc(m.x, m.y, m.r * 0.45, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(255, 240, 220, 0.85)';
+        ctx.fill();
+    }
+    ctx.restore();
+}
+
+// 9. LOOP DE ANIMAÇÃO
+function animate(agora) {
+    const dt = Math.min(0.05, (agora - ultimoFrame) / 1000 || 0);
+    ultimoFrame = agora;
+
+    lerMaosDaCamera();
+    atualizarEnergia(dt);
+    if (estado === 'jogando') {
+        atualizarJogo(dt);
+        if (estado === 'jogando') atualizarHud();
+    }
+
+    // Desenho
+    ctx.clearRect(0, 0, largura, altura);
+    blocos.forEach(b => b.desenhar(ctx));
+
+    const g = gravidade();
+    fragmento.forEach(p => { p.update(dt, g); p.draw(ctx); });
+    fragmento = fragmento.filter(p => p.alpha > 0);
+
+    drawTrail(ctx, dt, raioMinimoMao() * 0.35);
+
+    // Marca onde está cada mão. O raio brilha vermelho conforme a energia
+    // acumulada, e o combo aumenta ainda mais o brilho.
+    const nivelCombo = combo >= 2 ? Math.min(1, (combo - 1) / (CONFIG.comboBrilhoMax - 1)) : 0;
+    for (const id in maos) {
+        const m = maos[id];
+        if (!m.ativa) continue;
+        desenharMao(m, nivelCombo, agora);
+        // A varredura deste frame já foi testada
+        m.px = m.x; m.py = m.y;
+    }
+
+    if (flash > 0) {
+        ctx.fillStyle = `rgba(${flashCor}, ${flash * 0.45})`;
+        ctx.fillRect(0, 0, largura, altura);
+        flash = Math.max(0, flash - dt * 2.2);
+    }
+
+    requestAnimationFrame(animate);
+}
+
+requestAnimationFrame(animate);
+    </script>
+</body>
+</html>
